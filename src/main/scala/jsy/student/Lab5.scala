@@ -118,8 +118,8 @@ object Lab5 extends jsy.util.JsyApplication with Lab5Like {
 
   // Map map with an operator returning a DoWith
   def mapWith[W,A,B,C,D](m: Map[A,B])(f: ((A,B)) => DoWith[W,(C,D)]): DoWith[W,Map[C,D]] = {
-    m.foldRight[DoWith[W,Map[C,D]]]( ??? ) {
-      ???
+    m.foldRight[DoWith[W,Map[C,D]]]( doreturn(Map())  ) {
+      case (a, b) => b.flatMap(as => (f(a).map { case (b, c) => as + (b -> c) }))
     }
   }
 
@@ -149,7 +149,6 @@ object Lab5 extends jsy.util.JsyApplication with Lab5Like {
       /***** Make sure to replace the case _ => ???. */
     //case _ => ???
     case (TNull,TObj(_))=>true
-    case (_,_)=> if(t1==t2) true else false
     case (TObj(f1),TObj(f2))=> {
       f1.forall{
         case(a,b) if(b==None)=> true
@@ -160,6 +159,7 @@ object Lab5 extends jsy.util.JsyApplication with Lab5Like {
         }
       }
     }
+    case (_,_)=> if(t1==t2) true else false
       /***** Cases for the extra credit. Do not attempt until the rest of the assignment is complete. */
     case (TInterface(tvar, t1p), _) => ???
     case (_, TInterface(tvar, t2p)) => ???
@@ -178,7 +178,10 @@ object Lab5 extends jsy.util.JsyApplication with Lab5Like {
     case _ => false
   }
 
-  def isBindex(m: Mode, e: Expr): Boolean = ???
+  def isBindex(m: Mode, e: Expr): Boolean = m match {
+    case MConst| MName|MVar => true
+    case MRef=> isLExpr(e)
+  }
 
   def typeof(env: TEnv, e: Expr): Typ = {
     def err[T](tgot: Typ, e1: Expr): T = throw StaticTypeError(tgot, e1, e)
@@ -189,7 +192,10 @@ object Lab5 extends jsy.util.JsyApplication with Lab5Like {
       case B(_) => TBool
       case Undefined => TUndefined
       case S(_) => TString
-    //  case Var(x) if(env(x))=> env(x)._1._2
+      case Var(x)=> {
+        val MTyp(m,t) = lookup(env,x)
+        t
+      }
       case Unary(Neg, e1) => typeof(env, e1) match {
         case TNumber => TNumber
         case tgot => err(tgot, e1)
@@ -257,7 +263,15 @@ object Lab5 extends jsy.util.JsyApplication with Lab5Like {
       }
 
         /***** Cases from Lab 4 that need a small amount of adapting. */
-      case Decl(m, x, e1, e2) => ??? //typeof(extend(env,x,typeof(env,e1)), e2)
+      case Decl(m, x, e1, e2) => {
+        if (isBindex(m, e1)) {
+          val t1 = typeof(env, e1)
+          val env1 = extend(env, x, MTyp(m, t1))
+          val t2 = typeof(env1, e2)
+          t2
+        }
+        else err(typeof(env, e1), e1)
+      }
 
       case Function(p, params, tann, e1) => {
         // Bind to env1 an environment that extends env with an appropriate binding if
@@ -265,66 +279,46 @@ object Lab5 extends jsy.util.JsyApplication with Lab5Like {
         val env1 = (p, tann) match {
           case (Some(f), Some(tret)) =>
             val tprime = TFunction(params, tret)
-            env + (f -> (MConst, tprime))
+            extend(env, f, MTyp(MConst, tprime))
           case (None, _) => env
           case _ => err(TUndefined, e1)
         }
         // Bind to env2 an environment that extends env1 with bindings for params.
-        val env2 = params match {
-//          case Left(params) => params.foldLeft(env1) {
-//            case (env, param) => param match {
-//              case(a, b) => env + (a -> (MConst, b))
-//            }
-          case _=> ???
-        }
+        val env2 = env1 ++ params.toMap
+        val t1 = typeof(env2, e1)
         // Match on whether the return type is specified.
         tann match {
-          case None => ???
-          case Some(tret) => ???
+          case None => TFunction(params, t1)
+          case Some(tret) => if(tret == t1) TFunction(params, t1) else err(t1, e1)
         }
       }
       case Call(e1, args) => typeof(env, e1) match {
         case TFunction(params, tret) if (params.length == args.length) =>
           (params, args).zipped.foreach {
-            case ((_, t), x) => if (t != typeof(env,x)) err(typeof(env,x), x)
+            case ((x, MTyp(m,t1)), e1) => if(t1 != typeof(env, e1) || !isBindex(m, e1)) err(typeof(env, e1), e1)
           }
           tret
-//        case tgot @ TFunction(Right((mode, _, tparam)), tret) if (args.length == 1) => {
-//          val targ0 = typeof(env,args(0))
-//          mode match {
-//            case MName | MVar => {
-//              if (targ0 != tparam) {
-//                err(targ0, args(0))
-//              } else {
-//                tret
-//              }
-//            }
-//            case MRef if isLExpr(args(0)) => {
-//              if (targ0 != tparam) {
-//                err(targ0, args(0))
-//              } else {
-//                tret
-//              }
-//            }
-//            case _ => err(tgot, e1)
-//          }
-//        }
         case tgot => err(tgot, e1)
       }
 
         /***** New cases for Lab 5. ***/
-//      case Assign(Var(x), e1) if (env(x)._1 == MVar) => {
-//        val t1 = typeof(env,Var(x))
-//         if (t1 == typeof(env,e1)) t1 else err(t1, Var(x))
-//    }
-      case Assign(GetField(e1, f), e2) => typeof(env,e1) match {
-        case TObj(tfields) if (tfields.contains(f)) => {
-          val t2 = typeof(env,e2)
-          if (tfields(f) == t2) t2 else err(t2, e2)
-          //case tgot => err(tgot, e1)
+      case Assign(Var(x), e1) => {
+        val tgot = typeof(env, e1)
+        try lookup(env, x) match {
+          case MTyp(MVar | MRef, t1) => {
+            if (tgot == t1) tgot else err(tgot, e1)
+          }
+          case _ => err(tgot, e1)
         }
-        case tgot => err(typeof(env,e1), e1)
-    }
+      }
+
+      case Assign(GetField(e1, f), e2) => { //typeassignfield
+        typeof(env, e1) match {
+          case TObj(tfields) => val t2 = typeof(env, e2)
+            if (lookup(tfields, f) == t2) t2 else err(t2, e2)
+          case tgot => err(tgot, e1)
+        }
+      }
       case Assign(_, _) => err(TUndefined, e)
 
       case Null =>TNull
@@ -434,11 +428,18 @@ object Lab5 extends jsy.util.JsyApplication with Lab5Like {
   }
 
   /* Check whether or not an expression is reduced enough to be applied given a mode. */
-  def isRedex(mode: Mode, e: Expr): Boolean = ???
+  def isRedex(mode: Mode, e: Expr): Boolean = mode match {
+    case MConst| MVar=> if(isValue(e)) false else true
+    case MName=>false
+    case MRef=> !isLExpr(e)
+  }
 
   def getBinding(mode: Mode, e: Expr): DoWith[Mem,Expr] = {
     require(!isRedex(mode,e), s"expression ${e} must not reducible under mode ${mode}")
-    ???
+    mode match {
+      case MConst | MName | MRef => doreturn(e)
+      case MVar => memalloc(e) map {newAddr => Unary(Deref, newAddr)}
+    }
   }
 
   /* A small-step transition. */
@@ -464,10 +465,10 @@ object Lab5 extends jsy.util.JsyApplication with Lab5Like {
       case Binary(Div, N(n1), N(n2)) => doreturn( N(n1 / n2) )
       case If(B(b1), e2, e3) => doreturn( if (b1) e2 else e3 )
         /***** Cases needing adapting from Lab 4. */
-      case Obj(fields) if (fields forall { case (_, vi) => isValue(vi)}) => ???
-//        Mem.alloc(Obj(fields)) map {
-//          (a:A) => a:Expr
-//        }
+      case Obj(fields) if (fields forall { case (_, vi) => isValue(vi)}) =>
+        memalloc(Obj(fields)) map {
+          (a:A) => a:Expr
+        }
       case GetField(a @ A(_), f) =>{
         doget.map {
           (m: Mem) => m.get(a) match {
@@ -484,10 +485,10 @@ object Lab5 extends jsy.util.JsyApplication with Lab5Like {
 
       case Decl(MConst, x, v1, e2) if isValue(v1) => doreturn(substitute(e2, v1, x))
       case Decl(MVar, x, v1, e2) if isValue(v1) =>{
-//        Mem.alloc(v1) map {
-//          a => substitute(e2, Unary(Deref, a), x)
-//        }
-        ???
+        memalloc(v1) map {
+          a => substitute(e2, Unary(Deref, a), x)
+        }
+
       }
 
 
@@ -516,20 +517,20 @@ object Lab5 extends jsy.util.JsyApplication with Lab5Like {
 
       case Call(v @ Function(p, params, _, e), args) => {
         val pazip = params zip args
-        if (???) {
-          val dwep = pazip.foldRight( ??? : DoWith[Mem,Expr] )  {
-            case (((xi, MTyp(mi, _)), ei), dwacc) => ???
+        if (pazip.forall{ case ((x, MTyp(m,t)), ex) => !isRedex(m,ex)}) { //searchcall2. check to see if args aren't reduceable any further
+          val dwep = pazip.foldRight( doreturn(e) : DoWith[Mem,Expr] )  { //docall. this is where we do substitution. the base case is if you don't change the function body
+            case (((xi, MTyp(mi, _)), ei), dwacc) => getBinding(mi,ei) flatMap {eip => dwacc map { eaccp => substitute(eaccp, eip, xi)} } //getbinding returns a dowith, we need to use map/flatmap and then call substitute, then get e out of dwacc with a map
           }
           p match {
-            case None => ???
-            case Some(x) => ???
+            case None => dwep
+            case Some(x) => dwep map {dwepp => substitute(dwepp, v, x)}
           }
         }
-        else {
+        else { //reduce args if they're not fully reduced
           val dwpazipp = mapFirstWith(pazip) {
-            ???
+            case ((x, MTyp(m, t1)), arg) => if(isRedex(m,arg)) {Some(step(arg) map {eip => ((x, MTyp(m,t1)), eip)})} else None
           }
-          ???
+          dwpazipp map { dwpazippp => Call(v, dwpazippp.unzip._2)}
         }
       }
 
