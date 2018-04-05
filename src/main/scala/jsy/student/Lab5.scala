@@ -381,31 +381,16 @@ object Lab5 extends jsy.util.JsyApplication with Lab5Like {
         /***** Cases need a small adaption from Lab 3 */
       case Decl(mut, y, e1, e2) => Decl(mut, y, subst(e1), if (x == y) e2 else subst(e2))
         /***** Cases needing adapting from Lab 4 */
-      case Function(p, paramse, retty, e1) => ??? /*paramse match {
-        case Left(params) => {
-          val e1p = params.foldLeft(e1) {
-            (e1, param) => param match {
-              case (pname, ptype) => if (pname != x && p != Some(x)) {
-                subst(e1)
-              } else {
-                e1
-              }
-            }
-          }
-          Function(p, Left(params), retty, e1p)
+      case Function(p, paramse, retty, e1) => p match {
+        case None => {
+          val sub1= paramse.foldLeft(true)((acc,y)=>if (x==y._1) acc && false else acc && true)
+          if(sub1) Function(p,paramse,retty,subst(e1)) else Function(p,paramse,retty,e1)
         }
-        case Right((pmode, pname, ptype)) => {
-          val e1p = {
-            if (pname != x && p != Some(x)) {
-              subst(e1)
-            } else {
-              e1
-            }
-          }
-          Function(p, Right(pmode, pname, ptype), retty, e1p)
+        case Some(f) => {
+          val sub2= paramse.foldLeft(true)((acc,y)=> if(x==y._1)acc && false else acc && true )
+          if(x==f || sub2==false) Function(p,paramse,retty,e1) else Function(p,paramse,retty,subst(e1))
         }
       }
-      }*/
 
         /***** Cases directly from Lab 4 */
       case Call(e1, args) =>  Call(subst(e1), args map subst)
@@ -421,10 +406,10 @@ object Lab5 extends jsy.util.JsyApplication with Lab5Like {
     def myrename(e: Expr): Expr = {
       val fvs = freeVars(esub)
       def fresh(x: String): String = if (fvs contains x) fresh(x + "$") else x
-      rename[Unit](e)(???){ x => ??? }
+      rename[Unit](e)(){ x => doreturn(fresh(x)) }
     }
 
-    subst(???)
+    subst(myrename(e))
   }
 
   /* Check whether or not an expression is reduced enough to be applied given a mode. */
